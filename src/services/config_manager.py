@@ -51,8 +51,9 @@ class ConfigManager:
             "max_cost": 10_000_000
         },
         "shard_system": {
-            "shards_per_failure": 1,
-            "shards_for_redemption": 10,
+            "shards_per_failure_min": 1,
+            "shards_per_failure_max": 12,
+            "shards_for_redemption": 100,
             "enabled": True
         },
         "energy_system": {
@@ -99,18 +100,34 @@ class ConfigManager:
             }
         },
         "gacha_rates": {
-            "tier_1": 40.0,
-            "tier_2": 30.0,
-            "tier_3": 15.0,
-            "tier_4": 8.0,
-            "tier_5": 4.0,
-            "tier_6": 2.0,
-            "tier_7": 0.7,
-            "tier_8": 0.2,
-            "tier_9": 0.08,
-            "tier_10": 0.02,
-            "pity_counter": 90,
-            "pity_tier": 7
+            "tier_unlock_levels": {
+                "tier_1": 1,
+                "tier_2": 1,
+                "tier_3": 1,
+                "tier_4": 10,
+                "tier_5": 20,
+                "tier_6": 30,
+                "tier_7": 30,
+                "tier_8": 40,
+                "tier_9": 40,
+                "tier_10": 40,
+                "tier_11": 45,
+                "tier_12": 50
+            },
+            "rate_distribution": {
+                "decay_factor": 0.65,
+                "highest_tier_base": 15.0
+            }
+        },
+        "pity_system": {
+            "summons_for_pity": 25,
+            "pity_type": "new_maiden_or_next_bracket"
+        },
+        "summon_costs": {
+            "grace_per_summon": 5,
+            "x5_multiplier": 5,
+            "x10_multiplier": 10,
+            "x10_premium_only": True
         },
         "event_modifiers": {
             "fusion_rate_boost": 0.0,
@@ -118,14 +135,23 @@ class ConfigManager:
             "rikis_boost": 0.0,
             "shard_boost": 0.0
         },
-        "quest_rewards": {
+        "daily_rewards": {
             "base_rikis": 500,
             "base_grace": 3,
             "base_gems": 1,
+            "base_xp": 100,
             "completion_bonus_rikis": 500,
             "completion_bonus_grace": 2,
             "completion_bonus_gems": 1,
+            "completion_bonus_xp": 200,
             "streak_multiplier": 0.1
+        },
+        "daily_quests": {
+            "prayer_required": 1,
+            "summon_required": 1,
+            "fusion_required": 1,
+            "energy_required": 10,
+            "stamina_required": 5
         },
         "element_combinations": {
             "infernal|infernal": "infernal",
@@ -157,66 +183,72 @@ class ConfigManager:
         """
         Initialize ConfigManager by loading all config from database.
         
+        Loads all GameConfig rows from database and populates in-memory cache.
+        Falls back to hardcoded defaults if database is empty.
+        Starts background refresh task for periodic cache updates.
+        
         Args:
-            session: Database session for loading config
+            session: Database session
+        
+        Raises:
+            Exception: If database connection fails
+        
+        Example:
+            >>> async with DatabaseService.get_session() as session:
+            ...     await ConfigManager.initialize(session)
         """
         try:
             result = await session.execute(select(GameConfig))
             configs = result.scalars().all()
             
-            for config in configs:
-                cls._cache[config.config_key] = config.config_value
-                cls._cache_timestamps[config.config_key] = datetime.utcnow()
+            if configs:
+                for config in configs:
+                    cls._cache[config.config_key] = config.config_value
+                    cls._cache_timestamps[config.config_key] = datetime.utcnow()
+                logger.info(f"ConfigManager initialized with {len(configs)} config entries")
+            else:
+                cls._cache = cls._defaults.copy()
+                logger.info("ConfigManager initialized with default config (database empty)")
             
             cls._initialized = True
-            logger.info(f"ConfigManager initialized with {len(cls._cache)} entries from database")
+            
+            if cls._refresh_task is None:
+                cls._refresh_task = asyncio.create_task(cls._background_refresh())
+                logger.info("ConfigManager background refresh task started")
             
         except Exception as e:
-            logger.warning(f"Failed to initialize ConfigManager from database: {e}")
-            logger.warning("Using hardcoded defaults")
+            logger.error(f"Failed to initialize ConfigManager: {e}")
             cls._cache = cls._defaults.copy()
             cls._initialized = True
+            raise
     
     @classmethod
-    async def start_refresh_task(cls, session_factory) -> None:
-        """
-        Start background task to periodically refresh config from database.
-        
-        Args:
-            session_factory: Callable that returns async session context manager
-        """
-        if cls._refresh_task is not None:
-            logger.warning("Refresh task already running")
-            return
-        
-        async def refresh_loop():
-            while True:
-                try:
-                    await asyncio.sleep(cls._cache_ttl - 30)
+    async def _background_refresh(cls) -> None:
+        """Background task to refresh cache periodically."""
+        while True:
+            try:
+                await asyncio.sleep(cls._cache_ttl)
+                from src.services.database_service import DatabaseService
+                
+                async with DatabaseService.get_session() as session:
+                    result = await session.execute(select(GameConfig))
+                    configs = result.scalars().all()
                     
-                    async with session_factory() as session:
-                        result = await session.execute(select(GameConfig))
-                        configs = result.scalars().all()
-                        
-                        for config in configs:
-                            cls._cache[config.config_key] = config.config_value
-                            cls._cache_timestamps[config.config_key] = datetime.utcnow()
-                        
-                        logger.debug(f"ConfigManager cache refreshed with {len(configs)} entries")
-                        
-                except asyncio.CancelledError:
-                    logger.info("ConfigManager refresh task cancelled")
-                    break
-                except Exception as e:
-                    logger.error(f"Error in ConfigManager refresh task: {e}")
-                    await asyncio.sleep(60)
-        
-        cls._refresh_task = asyncio.create_task(refresh_loop())
-        logger.info("ConfigManager refresh task started")
+                    for config in configs:
+                        cls._cache[config.config_key] = config.config_value
+                        cls._cache_timestamps[config.config_key] = datetime.utcnow()
+                    
+                    logger.debug(f"ConfigManager cache refreshed ({len(configs)} entries)")
+                    
+            except asyncio.CancelledError:
+                logger.info("ConfigManager background refresh cancelled")
+                break
+            except Exception as e:
+                logger.error(f"ConfigManager background refresh error: {e}")
     
     @classmethod
-    async def stop_refresh_task(cls) -> None:
-        """Stop background refresh task."""
+    async def shutdown(cls) -> None:
+        """Stop background refresh task and cleanup."""
         if cls._refresh_task is not None:
             cls._refresh_task.cancel()
             try:
@@ -303,9 +335,18 @@ class ConfigManager:
         return data
     
     @classmethod
-    async def set(cls, session: AsyncSession, key: str, value: Any, modified_by: str = "system") -> None:
+    async def set(
+        cls,
+        session: AsyncSession,
+        key: str,
+        value: Any,
+        modified_by: str = "system"
+    ) -> None:
         """
-        Update configuration value in database and cache.
+        Set configuration value in database and update cache.
+        
+        Updates both database and in-memory cache.
+        Supports dot notation for nested values.
         
         Args:
             session: Database session
