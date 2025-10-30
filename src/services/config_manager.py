@@ -115,9 +115,9 @@ class ConfigManager:
                 "tier_12": 50
             },
             "rate_distribution": {
-                "decay_factor": 0.65,
-                "highest_tier_base": 15.0
-            }
+            "decay_factor": 0.75,
+            "highest_tier_base": 22.0
+        }
         },
         "pity_system": {
             "summons_for_pity": 25,
