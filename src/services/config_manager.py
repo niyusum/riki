@@ -90,7 +90,7 @@ class ConfigManager:
             }
         },
         "prayer_system": {
-            "grace_per_prayer": 5,
+            "grace_per_prayer": 1,
             "max_charges": 5,
             "regen_minutes": 5,
             "class_bonuses": {
@@ -175,6 +175,19 @@ class ConfigManager:
             "radiant|radiant": "radiant",
             "radiant|umbral": "infernal",
             "umbral|umbral": "umbral",
+        },
+        "resource_system": {
+            "grace_max_cap": 999999,
+            "rikis_max_cap": None,  # No cap for rikis
+            "riki_gems_max_cap": None,  # No cap for gems
+            "modifier_stacking": "multiplicative",
+            "passive_income_enabled": False,  # Future feature
+            "audit_retention_days": 90
+        },
+        "modifier_rules": {
+            "stack_method": "multiplicative",
+            "max_bonus_cap": 300,  # 300% maximum bonus
+            "min_penalty_cap": 10  # 10% minimum (90% penalty max)
         }
     }
     

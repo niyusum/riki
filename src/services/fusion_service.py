@@ -8,6 +8,7 @@ from src.database.models.maiden import Maiden
 from src.database.models.maiden_base import MaidenBase
 from src.services.config_manager import ConfigManager
 from src.services.transaction_logger import TransactionLogger
+from src.services.resource_service import ResourceService
 from src.config import Config
 from src.exceptions import (
     InsufficientResourcesError,
@@ -235,14 +236,27 @@ class FusionService:
         
         tier = maiden_1.tier
         cost = FusionService.get_fusion_cost(tier)
-        
-        if player.rikis < cost:
-            raise InsufficientResourcesError(
-                resource="rikis",
-                required=cost,
-                current=player.rikis
-            )
-        
+
+        shards_used = 0
+        shards_gained = 0
+        result_maiden_id = None
+        result_tier = tier + 1
+        success = False
+
+        # --- Deduct rikis using unified ResourceService ---
+        await ResourceService.consume_resources(
+            session=session,
+            player=player,
+            resources={"rikis": cost},
+            source="fusion_cost",
+            context={
+                "tier": tier,
+                "maiden_ids": maiden_ids,
+                "use_shards": use_shards
+            }
+        )
+
+        # --- Handle shard redemption if enabled ---
         if use_shards:
             shards_needed = ConfigManager.get("shard_system.shards_for_redemption", 100)
             if player.get_fusion_shards(tier) < shards_needed:
@@ -251,28 +265,6 @@ class FusionService:
                     required=shards_needed,
                     current=player.get_fusion_shards(tier)
                 )
-        
-        player.rikis -= cost
-        
-        maiden_base_1 = await session.get(MaidenBase, maiden_1.maiden_base_id)
-        maiden_base_2 = await session.get(MaidenBase, maiden_2.maiden_base_id)
-        
-        if not maiden_base_1 or not maiden_base_2:
-            raise MaidenNotFoundError("Maiden base data not found")
-        
-        result_element = FusionService.calculate_element_result(
-            maiden_base_1.element,
-            maiden_base_2.element
-        )
-        
-        success = False
-        shards_used = 0
-        shards_gained = 0
-        result_maiden_id = None
-        result_tier = tier + 1
-        
-        if use_shards:
-            shards_needed = ConfigManager.get("shard_system.shards_for_redemption", 100)
             key = f"tier_{tier}"
             player.fusion_shards[key] -= shards_needed
             shards_used = shards_needed
@@ -281,7 +273,20 @@ class FusionService:
         else:
             event_bonus = ConfigManager.get("event_modifiers.fusion_rate_boost", 0.0)
             success = FusionService.roll_fusion_success(tier, event_bonus)
-        
+
+        # --- Determine resulting element after success roll ---
+        maiden_base_1 = await session.get(MaidenBase, maiden_1.maiden_base_id)
+        maiden_base_2 = await session.get(MaidenBase, maiden_2.maiden_base_id)
+
+        if not maiden_base_1 or not maiden_base_2:
+            raise MaidenNotFoundError("Maiden base data not found")
+
+        result_element = FusionService.calculate_element_result(
+            maiden_base_1.element,
+            maiden_base_2.element
+        )
+
+        # --- Handle fusion outcome ---
         if success:
             result_maiden_bases = await session.execute(
                 select(MaidenBase).where(

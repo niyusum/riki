@@ -19,7 +19,7 @@ class LeaderCog(commands.Cog):
     """
     Leader maiden system for passive bonuses.
 
-    Players set a maiden as leader to gain passive bonuses based on element.
+    Players set a maiden as leader to gain passive bonuses based on element or tier.
     Leader provides stat bonuses and special effects.
 
     RIKI LAW Compliance:
@@ -39,8 +39,8 @@ class LeaderCog(commands.Cog):
     )
     @ratelimit(uses=10, per_seconds=60, command_name="leader")
     async def leader(self, ctx: commands.Context):
-        """Set or view your leader maiden."""
-        await ctx.defer()  # Public now
+        """View or set your leader maiden."""
+        await ctx.defer()
 
         try:
             async with DatabaseService.get_transaction() as session:
@@ -66,24 +66,20 @@ class LeaderCog(commands.Cog):
 
                 if not available_maidens:
                     embed = EmbedBuilder.warning(
-                        title="No Available Maidens",
-                        description="You don't have any maidens to set as leader yet!",
-                        footer="Get maidens first!",
-                    )
-                    embed.add_field(
-                        name="How to Get Maidens",
-                        value="• Use `/pray` for grace\n• Use `/summon` to get maidens",
-                        inline=False,
+                        title="No Maidens Available",
+                        description="You don’t have any maidens to set as leader yet!",
+                        footer="Use `/summon` to obtain new maidens.",
                     )
                     await ctx.send(embed=embed, ephemeral=True)
                     return
 
                 embed = EmbedBuilder.primary(
                     title="👑 Leader Maiden System",
-                    description="Your leader maiden provides passive bonuses based on their element and tier!",
+                    description="Your leader maiden grants passive bonuses based on their element and tier!",
                     footer=f"{len(available_maidens)} maidens available",
                 )
 
+                # --- Show Current Leader ---
                 if current_leader:
                     embed.add_field(
                         name="Current Leader",
@@ -94,13 +90,28 @@ class LeaderCog(commands.Cog):
                         inline=True,
                     )
                     embed.add_field(
-                        name="Bonus Active",
-                        value=current_leader.get("bonus_description", "No bonus"),
+                        name="Base Bonus",
+                        value=current_leader.get("bonus_description", "—"),
                         inline=True,
                     )
+
+                    # Modifier preview
+                    modifiers = LeaderService.get_active_modifiers(player)
+                    lines = []
+                    if modifiers.get("income_boost", 1.0) > 1.0:
+                        lines.append(f"💰 **Income Boost:** +{(modifiers['income_boost'] - 1.0) * 100:.0f}%")
+                    if modifiers.get("xp_boost", 1.0) > 1.0:
+                        lines.append(f"📈 **XP Boost:** +{(modifiers['xp_boost'] - 1.0) * 100:.0f}%")
+                    if modifiers.get("fusion_bonus", 0.0) > 0.0:
+                        lines.append(f"🔮 **Fusion Bonus:** +{modifiers['fusion_bonus']:.0f}% success chance")
+                    if lines:
+                        embed.add_field(name="✨ Active Modifiers", value="\n".join(lines), inline=False)
+                    else:
+                        embed.add_field(name="✨ Active Modifiers", value="None active", inline=False)
                 else:
                     embed.add_field(name="Current Leader", value="None set", inline=True)
 
+                # --- Static Reference Table ---
                 embed.add_field(
                     name="Element Bonuses",
                     value=(
@@ -123,13 +134,13 @@ class LeaderCog(commands.Cog):
             embed = EmbedBuilder.error(
                 title="Leader Error",
                 description="Unable to load leader interface.",
-                help_text="Please try again in a moment.",
+                help_text="Please try again later.",
             )
             await ctx.send(embed=embed, ephemeral=True)
 
     @commands.command(name="rl", hidden=True)
     async def leader_short(self, ctx: commands.Context):
-        """Alias for /leader"""
+        """Alias for /leader."""
         await self.leader(ctx)
 
 
@@ -168,7 +179,6 @@ class LeaderSelectionView(discord.ui.View):
                 player = await PlayerService.get_player_with_regen(
                     session, self.user_id, lock=True
                 )
-
                 if player:
                     await LeaderService.remove_leader(session, player)
                     await TransactionLogger.log_transaction(
@@ -180,10 +190,9 @@ class LeaderSelectionView(discord.ui.View):
 
             embed = EmbedBuilder.success(
                 title="Leader Removed",
-                description="Your leader maiden has been unset. Bonuses are no longer active.",
-                footer="Set a new leader anytime!",
+                description="Your leader maiden has been removed. Bonuses are no longer active.",
+                footer="Set a new leader anytime with `/leader`!",
             )
-
             await interaction.edit_original_response(embed=embed, view=None)
 
         except Exception as e:
@@ -194,8 +203,7 @@ class LeaderSelectionView(discord.ui.View):
 
     async def on_timeout(self):
         for item in self.children:
-            if isinstance(item, discord.ui.Button):
-                item.disabled = True
+            item.disabled = True
         if self.message:
             try:
                 await self.message.edit(view=self)
@@ -204,7 +212,7 @@ class LeaderSelectionView(discord.ui.View):
 
 
 class LeaderSelectDropdown(discord.ui.Select):
-    """Dropdown for selecting leader maiden."""
+    """Dropdown for selecting a new leader maiden."""
 
     def __init__(self, user_id: int, available_maidens: List[Dict[str, Any]]):
         self.user_id = user_id
@@ -245,12 +253,11 @@ class LeaderSelectDropdown(discord.ui.Select):
                 )
 
                 if not player:
-                    await interaction.followup.send(
-                        "Player not found!", ephemeral=True
-                    )
+                    await interaction.followup.send("Player not found!", ephemeral=True)
                     return
 
                 result = await LeaderService.set_leader(session, player, maiden_id)
+                modifiers = LeaderService.get_active_modifiers(player)
 
                 await TransactionLogger.log_transaction(
                     player_id=self.user_id,
@@ -272,8 +279,8 @@ class LeaderSelectDropdown(discord.ui.Select):
                 footer="Leader bonuses are now active!",
             )
             embed.add_field(
-                name="Active Bonus",
-                value=result.get("bonus_description", "No bonus"),
+                name="Base Bonus",
+                value=result.get("bonus_description", "—"),
                 inline=True,
             )
             embed.add_field(
@@ -281,6 +288,17 @@ class LeaderSelectDropdown(discord.ui.Select):
                 value=f"Tier {result['tier']}\nPower: {result.get('power', 0):,}",
                 inline=True,
             )
+
+            # Add modifier preview
+            lines = []
+            if modifiers.get("income_boost", 1.0) > 1.0:
+                lines.append(f"💰 **Income Boost:** +{(modifiers['income_boost'] - 1.0) * 100:.0f}%")
+            if modifiers.get("xp_boost", 1.0) > 1.0:
+                lines.append(f"📈 **XP Boost:** +{(modifiers['xp_boost'] - 1.0) * 100:.0f}%")
+            if modifiers.get("fusion_bonus", 0.0) > 0.0:
+                lines.append(f"🔮 **Fusion Bonus:** +{modifiers['fusion_bonus']:.0f}% success chance")
+            if lines:
+                embed.add_field(name="✨ Active Modifiers", value="\n".join(lines), inline=False)
 
             await interaction.edit_original_response(embed=embed, view=None)
 

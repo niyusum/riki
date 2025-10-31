@@ -10,6 +10,7 @@ from src.services.transaction_logger import TransactionLogger
 from src.config import Config
 from src.exceptions import InsufficientResourcesError
 from src.services.logger import get_logger
+from src.services.resource_service import ResourceService
 
 logger = get_logger(__name__)
 
@@ -217,25 +218,7 @@ class PlayerService:
         Execute prayer action, consuming 1 charge and granting grace.
         
         Grace amount affected by player class (invoker gets +20%).
-        Logs transaction and updates player stats.
-        
-        Args:
-            session: Database session (part of transaction)
-            player: Player object (must be locked)
-        
-        Returns:
-            Dictionary with prayer results:
-                - grace_gained
-                - total_grace
-                - charges_remaining
-                - next_charge_in
-        
-        Raises:
-            InsufficientResourcesError: If player has no prayer charges
-        
-        Example:
-            >>> result = await PlayerService.perform_prayer(session, player)
-            >>> print(f"Gained {result['grace_gained']} grace!")
+        Uses ResourceService for grace granting with modifier application.
         """
         if player.prayer_charges <= 0:
             raise InsufficientResourcesError(
@@ -251,38 +234,30 @@ class PlayerService:
             player.last_prayer_regen = datetime.utcnow()
         
         base_grace = ConfigManager.get("prayer_system.grace_per_prayer", 5)
-        class_bonuses = ConfigManager.get("prayer_system.class_bonuses", {})
         
-        multiplier = 1.0
-        if player.player_class:
-            multiplier = class_bonuses.get(player.player_class, 1.0)
-        
-        grace_gained = int(base_grace * multiplier)
-        old_grace = player.grace
-        player.grace += grace_gained
-        
-        player.stats["prayers_performed"] = player.stats.get("prayers_performed", 0) + 1
-        
-        await TransactionLogger.log_transaction(
+        result = await ResourceService.grant_resources(
             session=session,
-            player_id=player.discord_id,
-            transaction_type="prayer_performed",
-            details={
-                "grace_gained": grace_gained,
-                "old_grace": old_grace,
-                "new_grace": player.grace,
+            player=player,
+            resources={"grace": base_grace},
+            source="prayer_performed",
+            apply_modifiers=True,
+            context={
                 "old_charges": old_charges,
                 "new_charges": player.prayer_charges,
-                "class_bonus": multiplier
-            },
-            context="prayer_command"
+                "player_class": player.player_class
+            }
         )
+        
+        grace_gained = result["granted"]["grace"]
+        
+        player.stats["prayers_performed"] = player.stats.get("prayers_performed", 0) + 1
         
         return {
             "grace_gained": grace_gained,
             "total_grace": player.grace,
             "charges_remaining": player.prayer_charges,
-            "next_charge_in": player.get_prayer_regen_display()
+            "next_charge_in": player.get_prayer_regen_display(),
+            "modifiers_applied": result["modifiers_applied"]
         }
     
     @staticmethod

@@ -9,6 +9,7 @@ from src.services.config_manager import ConfigManager
 from src.services.transaction_logger import TransactionLogger
 from src.exceptions import InvalidOperationError
 from src.services.logger import get_logger
+from src.services.resource_service import ResourceService
 
 logger = get_logger(__name__)
 
@@ -278,7 +279,7 @@ class DailyService:
             ...     print(f"Claimed {result['rewards']['rikis']:,} rikis!")
         """
         daily_quest = await DailyService.get_or_create_daily_quest(session, player_id)
-        
+    
         if not daily_quest.is_complete():
             raise InvalidOperationError(
                 f"Cannot claim rewards - only {daily_quest.get_completion_count()}/5 quests complete"
@@ -291,43 +292,59 @@ class DailyService:
         if not player:
             raise InvalidOperationError(f"Player {player_id} not found")
         
+        # --- Compute rewards ---
         rewards = DailyService.calculate_rewards(daily_quest)
-        
-        player.rikis += rewards["rikis"]
-        player.grace += rewards["grace"]
-        player.riki_gems += rewards["riki_gems"]
-        
+        xp_amount = rewards.pop("xp", 0)  # Handle XP separately via PlayerService
+
+        # --- Grant currencies & items using ResourceService ---
+        grant_result = await ResourceService.grant_resources(
+            session=session,
+            player=player,
+            resources=rewards,
+            source="daily_rewards_claimed",
+            apply_modifiers=True,
+            context={
+                "streak": daily_quest.bonus_streak,
+                "quests_completed": daily_quest.get_completion_count()
+            }
+        )
+
+        # --- Handle XP and level-up via PlayerService ---
         from src.services.player_service import PlayerService
         level_up_result = await PlayerService.add_xp_and_level_up(
             player,
-            rewards["xp"],
+            xp_amount,
             allow_overcap=True
         )
-        
+
         daily_quest.rewards_claimed = True
-        
+
+        # --- Log transaction ---
         await TransactionLogger.log_transaction(
             session=session,
             player_id=player_id,
             transaction_type="daily_rewards_claimed",
             details={
-                "rewards": rewards,
+                "rewards": grant_result["granted"],
+                "xp": xp_amount,
+                "modifiers_applied": grant_result.get("modifiers_applied"),
                 "streak": daily_quest.bonus_streak,
                 "leveled_up": level_up_result["leveled_up"],
                 "levels_gained": level_up_result["levels_gained"]
             },
             context="daily_command"
         )
-        
+
         player.stats["daily_rewards_claimed"] = player.stats.get("daily_rewards_claimed", 0) + 1
-        
+
         logger.info(
-            f"Player {player_id} claimed daily rewards: "
-            f"{rewards['rikis']} rikis, {rewards['xp']} XP (streak {daily_quest.bonus_streak})"
+            f"Player {player_id} claimed daily rewards via ResourceService: "
+            f"{grant_result['granted']} + {xp_amount} XP (streak {daily_quest.bonus_streak})"
         )
-        
+
         return {
-            "rewards": rewards,
+            "rewards": grant_result["granted"],
+            "modifiers_applied": grant_result["modifiers_applied"],
             "leveled_up": level_up_result["leveled_up"],
             "new_level": player.level,
             "levels_gained": level_up_result["levels_gained"],

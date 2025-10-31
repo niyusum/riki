@@ -4,6 +4,7 @@ from typing import Optional
 
 from src.services.database_service import DatabaseService
 from src.services.player_service import PlayerService
+from src.services.resource_service import ResourceService
 from src.database.models.player import Player
 from src.exceptions import PlayerNotFoundError
 from src.services.logger import get_logger
@@ -17,7 +18,7 @@ class MeCog(commands.Cog):
     Player profile display system.
 
     Shows detailed player information: resources, progression, and collection metrics.
-    Read-only with caching; public when viewing others, private for self-view.
+    Public for all viewers (including self), fully read-only.
 
     RIKI LAW Compliance:
         - Read-only (no locks, Article I.11)
@@ -32,19 +33,18 @@ class MeCog(commands.Cog):
     @commands.hybrid_command(
         name="me",
         aliases=["rme"],
-        description="View your player profile and stats"
+        description="View your player profile and stats",
     )
     async def me(self, ctx: commands.Context, user: Optional[discord.Member] = None):
         """
         Display player profile.
 
         Shows all major stats, resources, fusion history, and collection metrics.
-        Viewing others’ profiles is public; viewing your own is private.
+        Always public.
         """
         await ctx.defer()
 
         target = user or ctx.author
-        is_self = target.id == ctx.author.id
 
         try:
             async with DatabaseService.get_transaction() as session:
@@ -53,26 +53,26 @@ class MeCog(commands.Cog):
                 )
 
                 if not player:
-                    if is_self:
+                    if target.id == ctx.author.id:
                         embed = EmbedBuilder.error(
                             title="Not Registered",
                             description="You haven't registered yet!",
-                            help_text="Use `/register` to create your account."
+                            help_text="Use `/register` to create your account.",
                         )
                     else:
                         embed = EmbedBuilder.error(
                             title="Player Not Found",
                             description=f"{target.mention} hasn't registered yet.",
-                            footer="They can use /register to join RIKI RPG."
+                            footer="They can use /register to join RIKI RPG.",
                         )
-                    await ctx.send(embed=embed, ephemeral=True)
+                    await ctx.send(embed=embed)
                     return
 
-                # Build main profile embed
-                title = f"{target.display_name}'s Profile" if not is_self else "Your Profile"
+                # 🧭 Build main profile embed
+                title = f"{target.display_name}'s Profile"
                 embed = EmbedBuilder.player_stats(player, title=title)
 
-                # Fusion summary
+                # ⚗️ Fusion summary
                 success_rate = player.calculate_fusion_success_rate()
                 embed.add_field(
                     name="⚗️ Fusion Stats",
@@ -81,10 +81,10 @@ class MeCog(commands.Cog):
                         f"**Rate:** {success_rate:.1f}%\n"
                         f"**Highest:** Tier {player.highest_tier_achieved}"
                     ),
-                    inline=True
+                    inline=True,
                 )
 
-                # Fusion shards summary
+                # 🔷 Fusion shards summary
                 total_shards = sum(player.fusion_shards.values())
                 early = sum(
                     player.fusion_shards.get(k, 0)
@@ -93,9 +93,37 @@ class MeCog(commands.Cog):
                 embed.add_field(
                     name="🔷 Fusion Shards",
                     value=f"**Total:** {total_shards}\n**T1–T3:** {early}\n**T4+:** {total_shards - early}",
-                    inline=True
+                    inline=True,
                 )
 
+                # 🌟 Active Modifiers Section
+                try:
+                    summary = ResourceService.get_resource_summary(player)
+                    modifiers = summary.get("modifiers", {})
+                    income_boost = modifiers.get("income_boost", 1.0)
+                    xp_boost = modifiers.get("xp_boost", 1.0)
+
+                    if income_boost > 1.0 or xp_boost > 1.0:
+                        bonus_lines = []
+                        if income_boost > 1.0:
+                            bonus_lines.append(f"💰 **Income Boost:** +{(income_boost - 1.0) * 100:.0f}%")
+                        if xp_boost > 1.0:
+                            bonus_lines.append(f"📈 **XP Boost:** +{(xp_boost - 1.0) * 100:.0f}%")
+                        embed.add_field(
+                            name="✨ Active Modifiers",
+                            value="\n".join(bonus_lines),
+                            inline=False,
+                        )
+                    else:
+                        embed.add_field(
+                            name="✨ Active Modifiers",
+                            value="None active",
+                            inline=False,
+                        )
+                except Exception as e:
+                    logger.warning(f"Failed to load modifiers for {target.id}: {e}")
+
+                # Thumbnail and footer
                 embed.set_thumbnail(url=target.display_avatar.url)
                 days = (discord.utils.utcnow() - player.created_at).days
                 embed.set_footer(
@@ -103,16 +131,16 @@ class MeCog(commands.Cog):
                 )
 
                 view = ProfileActionView(ctx.author.id)
-                await ctx.send(embed=embed, view=view, ephemeral=is_self)
+                await ctx.send(embed=embed, view=view)  # <-- Always public
 
         except Exception as e:
             logger.error(f"Profile load error for {target.id}: {e}", exc_info=True)
             embed = EmbedBuilder.error(
                 title="Profile Error",
                 description="Unable to load profile data.",
-                help_text="Please try again shortly."
+                help_text="Please try again shortly.",
             )
-            await ctx.send(embed=embed, ephemeral=True)
+            await ctx.send(embed=embed)
 
 
 class ProfileActionView(discord.ui.View):

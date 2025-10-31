@@ -3,7 +3,7 @@ from typing import Dict, Any, Optional
 from datetime import datetime
 
 from src.database.models.player import Player
-from src.services.transaction_logger import TransactionLogger
+from src.services.resource_service import ResourceService  # ✅ added
 from src.services.logger import get_logger
 
 logger = get_logger(__name__)
@@ -62,19 +62,26 @@ KEY_INDEX: Dict[str, Dict[str, Any]] = {s["key"]: s for s in TUTORIAL_STEPS}
 class TutorialService:
     @staticmethod
     def _ensure_state(player: Player) -> None:
+        """Ensure player has tutorial tracking structure initialized."""
         if "tutorial" not in player.stats:
             player.stats["tutorial"] = {"completed": {}}
 
     @staticmethod
     def is_completed(player: Player, step_key: str) -> bool:
+        """Check if tutorial step already completed."""
         TutorialService._ensure_state(player)
         return bool(player.stats["tutorial"]["completed"].get(step_key))
 
+    # ✅ Updated version with ResourceService integration
     @staticmethod
-    async def complete_step(session, player: Player, step_key: str) -> Optional[Dict[str, Any]]:
+    async def complete_step(
+        session,
+        player: Player,
+        step_key: str
+    ) -> Optional[Dict[str, Any]]:
         """
-        Idempotently completes a tutorial step, applies rewards, logs, returns payload for messaging.
-        Returns None if already completed or unknown.
+        Idempotently complete tutorial step with ResourceService integration.
+        Tutorial rewards are small fixed bonuses with NO leader/class modifiers.
         """
         TutorialService._ensure_state(player)
 
@@ -89,23 +96,32 @@ class TutorialService:
         player.stats["tutorial"]["completed"][step_key] = datetime.utcnow().isoformat()
 
         reward = step.get("reward") or {}
-        rikis = int(reward.get("rikis", 0))
-        grace = int(reward.get("grace", 0))
-        if rikis:
-            player.rikis += rikis
-        if grace:
-            player.grace += grace
+        reward_resources = {}
+        if reward.get("rikis", 0) > 0:
+            reward_resources["rikis"] = reward["rikis"]
+        if reward.get("grace", 0) > 0:
+            reward_resources["grace"] = reward["grace"]
 
-        await TransactionLogger.log_transaction(
-            player_id=player.discord_id,
-            transaction_type="tutorial_step_completed",
-            details={"step_key": step_key, "reward": reward},
-            context="tutorial:complete"
-        )
+        # ✅ Unified resource grant through ResourceService (no modifiers)
+        if reward_resources:
+            await ResourceService.grant_resources(
+                session=session,
+                player=player,
+                resources=reward_resources,
+                source="tutorial_completion",
+                apply_modifiers=False,
+                context={"step_key": step_key}
+            )
+
+        logger.info(f"Tutorial step '{step_key}' completed for player {player.discord_id}")
 
         return {
             "title": step["title"],
             "congrats": step["congrats"],
-            "reward": {"rikis": rikis, "grace": grace},
+            "reward": {
+                "rikis": reward.get("rikis", 0),
+                "grace": reward.get("grace", 0)
+            },
         }
+
 

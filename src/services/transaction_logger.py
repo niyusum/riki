@@ -197,3 +197,31 @@ class TransactionLogger:
         except Exception as e:
             logger.error(f"Failed to flush transaction logs: {e}")
             raise
+
+    @staticmethod
+    async def cleanup_old_logs(cutoff_days: int = 90) -> int:
+        """
+        Delete transaction logs older than specified days.
+        Automatically manages its own database transaction.
+        
+        Safe to call standalone (used by SystemTasksCog daily cleanup task).
+        
+        Args:
+            cutoff_days: Delete logs older than this many days (default 90)
+        
+        Returns:
+            Number of logs deleted
+        """
+        from src.database.models.transaction_log import TransactionLog
+        from src.services.database_service import DatabaseService
+        from sqlalchemy import delete
+        from datetime import datetime, timedelta
+
+        cutoff_date = datetime.utcnow() - timedelta(days=cutoff_days)
+
+        async with DatabaseService.get_transaction() as session:
+            stmt = delete(TransactionLog).where(TransactionLog.timestamp < cutoff_date)
+            result = await session.execute(stmt)
+            deleted_count = result.rowcount or 0
+            logger.info(f"Cleaned up {deleted_count} transaction logs older than {cutoff_days} days")
+            return deleted_count

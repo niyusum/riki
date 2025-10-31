@@ -7,6 +7,7 @@ from src.services.player_service import PlayerService
 from src.services.redis_service import RedisService
 from src.services.transaction_logger import TransactionLogger
 from src.services.event_bus import EventBus
+from src.services.resource_service import ResourceService
 from src.exceptions import InsufficientResourcesError, ValidationError
 from src.services.logger import get_logger
 from src.utils.decorators import ratelimit
@@ -20,7 +21,7 @@ class PrayCog(commands.Cog):
     Prayer system for grace generation.
 
     Players spend prayer charges to gain grace, which is used for summoning maidens.
-    Prayer charges regenerate over time. Class bonuses affect grace gained.
+    Prayer charges regenerate over time. Class and leader bonuses affect grace gained.
 
     RIKI LAW Compliance:
         - SELECT FOR UPDATE on state changes (Article I.1)
@@ -43,7 +44,7 @@ class PrayCog(commands.Cog):
     @ratelimit(uses=10, per_seconds=60, command_name="pray")
     async def pray(self, ctx: commands.Context, charges: Optional[int] = 1):
         """Perform prayers to gain grace."""
-        await ctx.defer()  # public prayer success message
+        await ctx.defer()
 
         try:
             if charges < 1:
@@ -85,6 +86,7 @@ class PrayCog(commands.Cog):
                             "grace_gained": result["grace_gained"],
                             "class_bonus": result.get("class_bonus", 0),
                             "remaining_charges": result["remaining_charges"],
+                            "modifiers_applied": result.get("modifiers_applied", {}),
                         },
                         context=f"command:/{ctx.command.name} guild:{ctx.guild.id if ctx.guild else 'DM'}",
                     )
@@ -95,12 +97,13 @@ class PrayCog(commands.Cog):
                             "player_id": ctx.author.id,
                             "charges_spent": charges,
                             "grace_gained": result["grace_gained"],
-                            "channel_id": ctx.channel.id,        
-                            "__topic__": "prayer_completed",      
+                            "channel_id": ctx.channel.id,
+                            "__topic__": "prayer_completed",
                             "timestamp": discord.utils.utcnow(),
                         },
                     )
 
+                    # --- Embed Construction ---
                     embed = EmbedBuilder.success(
                         title="🙏 Prayer Complete",
                         description=(
@@ -119,11 +122,29 @@ class PrayCog(commands.Cog):
                         inline=True,
                     )
 
+                    # Class bonus (existing)
                     if result.get("class_bonus", 0) > 0:
                         embed.add_field(
                             name="✨ Class Bonus",
                             value=f"+{result['class_bonus']} grace from **{player.player_class}** class",
                             inline=True,
+                        )
+
+                    # NEW: Active modifier bonuses (leader/class effects)
+                    modifiers = result.get("modifiers_applied", {})
+                    income_boost = modifiers.get("income_boost", 1.0)
+                    xp_boost = modifiers.get("xp_boost", 1.0)
+
+                    if income_boost > 1.0 or xp_boost > 1.0:
+                        bonus_lines = []
+                        if income_boost > 1.0:
+                            bonus_lines.append(f"💰 **Grace Boost:** +{(income_boost - 1.0) * 100:.0f}%")
+                        if xp_boost > 1.0:
+                            bonus_lines.append(f"📈 **XP Bonus:** +{(xp_boost - 1.0) * 100:.0f}%")
+                        embed.add_field(
+                            name="🌟 Active Modifiers",
+                            value="\n".join(bonus_lines),
+                            inline=False,
                         )
 
                     embed.add_field(
@@ -201,13 +222,9 @@ class PrayActionView(discord.ui.View):
         style=discord.ButtonStyle.primary,
         custom_id="quick_summon_after_pray",
     )
-    async def summon_button(
-        self, interaction: discord.Interaction, _: discord.ui.Button
-    ):
+    async def summon_button(self, interaction: discord.Interaction, _: discord.ui.Button):
         if interaction.user.id != self.user_id:
-            await interaction.response.send_message(
-                "This button is not for you!", ephemeral=True
-            )
+            await interaction.response.send_message("This button is not for you!", ephemeral=True)
             return
 
         await interaction.response.send_message(
@@ -220,13 +237,9 @@ class PrayActionView(discord.ui.View):
         style=discord.ButtonStyle.success,
         custom_id="pray_again",
     )
-    async def pray_again_button(
-        self, interaction: discord.Interaction, _: discord.ui.Button
-    ):
+    async def pray_again_button(self, interaction: discord.Interaction, _: discord.ui.Button):
         if interaction.user.id != self.user_id:
-            await interaction.response.send_message(
-                "This button is not for you!", ephemeral=True
-            )
+            await interaction.response.send_message("This button is not for you!", ephemeral=True)
             return
 
         await interaction.response.send_message(
@@ -238,13 +251,9 @@ class PrayActionView(discord.ui.View):
         style=discord.ButtonStyle.secondary,
         custom_id="view_profile_after_pray",
     )
-    async def profile_button(
-        self, interaction: discord.Interaction, _: discord.ui.Button
-    ):
+    async def profile_button(self, interaction: discord.Interaction, _: discord.ui.Button):
         if interaction.user.id != self.user_id:
-            await interaction.response.send_message(
-                "This button is not for you!", ephemeral=True
-            )
+            await interaction.response.send_message("This button is not for you!", ephemeral=True)
             return
 
         await interaction.response.send_message(

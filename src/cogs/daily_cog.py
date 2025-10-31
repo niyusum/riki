@@ -7,6 +7,7 @@ from src.services.player_service import PlayerService
 from src.services.daily_service import DailyService
 from src.services.transaction_logger import TransactionLogger
 from src.services.event_bus import EventBus
+from src.services.resource_service import ResourceService
 from src.exceptions import CooldownError
 from src.services.logger import get_logger
 from src.utils.decorators import ratelimit
@@ -20,7 +21,8 @@ class DailyCog(commands.Cog):
     Daily rewards system.
 
     Players can claim daily rewards once per 24 hours. Rewards include
-    rikis, grace, and bonus items based on streak.
+    rikis, grace, and bonus items based on streak. Leader and class modifiers
+    can further increase rewards.
 
     RIKI LAW Compliance:
         - SELECT FOR UPDATE (Article I.1)
@@ -41,7 +43,7 @@ class DailyCog(commands.Cog):
     @ratelimit(uses=5, per_seconds=60, command_name="daily")
     async def daily(self, ctx: commands.Context):
         """Claim daily rewards."""
-        await ctx.defer()  # public main interaction
+        await ctx.defer()
 
         try:
             async with DatabaseService.get_transaction() as session:
@@ -68,6 +70,7 @@ class DailyCog(commands.Cog):
                         "grace_gained": result["grace_gained"],
                         "streak": result["streak"],
                         "bonus_applied": result.get("bonus_applied", False),
+                        "modifiers_applied": result.get("modifiers_applied", {}),
                     },
                     context=f"command:/{ctx.command.name} guild:{ctx.guild.id if ctx.guild else 'DM'}",
                 )
@@ -81,6 +84,7 @@ class DailyCog(commands.Cog):
                     },
                 )
 
+            # --- Embed Construction ---
             embed = EmbedBuilder.success(
                 title="🎁 Daily Rewards Claimed!",
                 description=(
@@ -101,6 +105,23 @@ class DailyCog(commands.Cog):
                     name="🎉 Streak Bonus",
                     value=f"**+{result.get('bonus_amount', 0):,}** extra rikis!\nKeep your streak going!",
                     inline=True,
+                )
+
+            # 🔹 NEW: Display applied modifiers (leader/class bonuses)
+            modifiers = result.get("modifiers_applied", {})
+            income_boost = modifiers.get("income_boost", 1.0)
+            xp_boost = modifiers.get("xp_boost", 1.0)
+
+            if income_boost > 1.0 or xp_boost > 1.0:
+                lines = []
+                if income_boost > 1.0:
+                    lines.append(f"💰 **Income Boost:** +{(income_boost - 1.0) * 100:.0f}%")
+                if xp_boost > 1.0:
+                    lines.append(f"📈 **XP Boost:** +{(xp_boost - 1.0) * 100:.0f}%")
+                embed.add_field(
+                    name="✨ Modifier Bonus",
+                    value="\n".join(lines),
+                    inline=False,
                 )
 
             embed.add_field(
@@ -168,9 +189,7 @@ class DailyActionView(discord.ui.View):
         style=discord.ButtonStyle.primary,
         custom_id="profile_after_daily",
     )
-    async def profile_button(
-        self, interaction: discord.Interaction, _: discord.ui.Button
-    ):
+    async def profile_button(self, interaction: discord.Interaction, _: discord.ui.Button):
         if interaction.user.id != self.user_id:
             await interaction.response.send_message(
                 "This button is not for you!", ephemeral=True
@@ -186,9 +205,7 @@ class DailyActionView(discord.ui.View):
         style=discord.ButtonStyle.success,
         custom_id="summon_after_daily",
     )
-    async def summon_button(
-        self, interaction: discord.Interaction, _: discord.ui.Button
-    ):
+    async def summon_button(self, interaction: discord.Interaction, _: discord.ui.Button):
         if interaction.user.id != self.user_id:
             await interaction.response.send_message(
                 "This button is not for you!", ephemeral=True

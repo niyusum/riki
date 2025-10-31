@@ -1,6 +1,6 @@
 import discord
 from discord.ext import commands
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 
 from utils.embed_builder import EmbedBuilder
 
@@ -21,12 +21,7 @@ class HelpCog(commands.Cog):
         description="View all available commands and how to use them",
     )
     async def help(self, ctx: commands.Context, command: Optional[str] = None):
-        """
-        Display interactive help menu.
-
-        Args:
-            command: Specific command to get help for (optional)
-        """
+        """Display interactive help menu."""
         await ctx.defer(ephemeral=True)
         if command:
             await self._show_command_help(ctx, command)
@@ -38,10 +33,10 @@ class HelpCog(commands.Cog):
         embed = EmbedBuilder.info(
             title="🎮 RIKI RPG Commands",
             description=(
-                "Welcome to RIKI RPG! Select a category below to see available commands.\n\n"
-                "**Quick Navigation:** Use the buttons below to browse categories."
+                "Welcome to **RIKI RPG**, where you collect and empower maidens through prayers, fusions, and blessings.\n\n"
+                "Use the buttons below to browse help categories or type `/help <command>` for detailed info."
             ),
-            footer="Use /help <command> for detailed info about a specific command",
+            footer="RIKI RPG Help • Use /help <command> for details",
         )
 
         visible_cmds = [c for c in self.bot.commands if not c.hidden]
@@ -51,26 +46,13 @@ class HelpCog(commands.Cog):
             inline=False,
         )
 
-        categories: Dict[str, str] = {
-            "Getting Started": "register, profile, help",
-            "Resources": "pray, daily",
-            "Maidens": "summon, collection, fusion, leader",
-            "Progression": "stats",
-            "Information": "help",
-        }
-
-        cat_lines = "\n".join(
-            f"**{name}**\n`{cmds}`\n" for name, cmds in categories.items()
-        )
-
-        embed.add_field(name="📚 Command Categories", value=cat_lines, inline=False)
         embed.add_field(
             name="💡 Pro Tips",
             value=(
-                "• All commands work with `/` or `r` prefix\n"
+                "• Commands work with `/` or `r` prefix\n"
                 "• Example: `/summon` or `r summon`\n"
                 "• Use shorter aliases: `rs`, `rf`, `rp`\n"
-                "• Check `/profile` regularly for updates"
+                "• Check `/profile` and `/stats` regularly for updates"
             ),
             inline=False,
         )
@@ -112,10 +94,11 @@ class HelpCog(commands.Cog):
         embed.add_field(name="Usage", value=f"`{usage}`", inline=False)
 
         examples: Dict[str, str] = {
-            "summon": "`/summon 5` - Summon 5 maidens at once",
-            "fusion": "`/fusion` - Open fusion interface",
-            "collection": "`/collection tier:5` - View Tier 5 maidens only",
-            "pray": "`/pray 3` - Pray 3 times at once",
+            "summon": "`/summon 5` — Summon 5 maidens at once",
+            "fusion": "`/fusion` — Open the fusion interface",
+            "collection": "`/collection tier:5` — View Tier 5 maidens only",
+            "pray": "`/pray 3` — Pray 3 times at once",
+            "leader": "`/leader` — Set or view your current leader",
         }
         if cmd.name in examples:
             embed.add_field(name="Example", value=examples[cmd.name], inline=False)
@@ -133,136 +116,150 @@ class HelpCategoryView(discord.ui.View):
     def set_message(self, message: discord.Message):
         self.message = message
 
-    @discord.ui.button(
-        label="🎯 Getting Started",
-        style=discord.ButtonStyle.primary,
-        custom_id="help_getting_started",
-    )
+    @discord.ui.button(label="🎯 Getting Started", style=discord.ButtonStyle.primary)
     async def getting_started(self, interaction: discord.Interaction, _: discord.ui.Button):
         embed = EmbedBuilder.info(
             title="🎯 Getting Started",
             description="Essential commands for new players",
             footer="RIKI RPG Help",
         )
-
-        commands_info = [
-            ("**/register** (rr)", "Create your account and start playing"),
-            ("**/profile** (rme)", "View your stats, resources, and collection"),
-            ("**/help**", "View this help menu"),
-        ]
-        for cmd, desc in commands_info:
-            embed.add_field(name=cmd, value=desc, inline=False)
-
+        embed.add_field(
+            name="📘 Commands",
+            value="`/register`, `/profile`, `/help`",
+            inline=False,
+        )
         embed.add_field(
             name="Quick Start Guide",
             value=(
-                "1. Use `/register` to create account\n"
-                "2. Use `/pray` to gain grace\n"
-                "3. Use `/summon` to recruit maidens\n"
-                "4. Use `/fusion` to upgrade them!"
+                "1️⃣ `/register` to create your account\n"
+                "2️⃣ `/pray` to gain grace\n"
+                "3️⃣ `/summon` to collect maidens\n"
+                "4️⃣ `/fusion` to upgrade them\n"
+                "5️⃣ `/leader` to set your strongest maiden"
             ),
             inline=False,
         )
-
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @discord.ui.button(
-        label="💎 Resources",
-        style=discord.ButtonStyle.success,
-        custom_id="help_resources",
-    )
+    @discord.ui.button(label="💎 Resources", style=discord.ButtonStyle.success)
     async def resources(self, interaction: discord.Interaction, _: discord.ui.Button):
         embed = EmbedBuilder.info(
             title="💎 Resource Commands",
-            description="Commands for gaining and managing resources",
+            description="Gain and manage in-game currencies and energy.",
             footer="RIKI RPG Help",
         )
-
-        commands_info = [
-            ("**/pray** (rp)", "Spend prayer charges to gain grace"),
-            ("**/daily** (rd)", "Claim daily rewards (rikis, grace, bonuses)"),
-        ]
-        for cmd, desc in commands_info:
-            embed.add_field(name=cmd, value=desc, inline=False)
-
         embed.add_field(
-            name="Resource Types",
+            name="Commands",
+            value="`/pray`, `/daily`",
+            inline=False,
+        )
+        embed.add_field(
+            name="Resources",
             value=(
-                "**Grace** — Used for summoning maidens\n"
-                "**Rikis** — Primary fusion currency\n"
-                "**Energy** — Used for quests (coming soon)\n"
-                "**Stamina** — Used for battles (coming soon)"
+                "**Grace** — For summoning maidens\n"
+                "**Rikis** — Currency for fusions\n"
+                "**Gems** — Premium currency\n"
+                "**Energy & Stamina** — Used for activities (coming soon)"
             ),
             inline=False,
         )
-
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @discord.ui.button(
-        label="👑 Maidens",
-        style=discord.ButtonStyle.primary,
-        custom_id="help_maidens",
-    )
+    @discord.ui.button(label="👑 Maidens", style=discord.ButtonStyle.primary)
     async def maidens(self, interaction: discord.Interaction, _: discord.ui.Button):
         embed = EmbedBuilder.info(
             title="👑 Maiden Commands",
-            description="Commands for managing your maiden collection",
+            description="Manage and empower your maiden collection.",
             footer="RIKI RPG Help",
         )
-
-        commands_info = [
-            ("**/summon** (rs)", "Summon maidens using grace (1x, 5x, or 10x)"),
-            ("**/collection** (rm)", "View your collection with filters"),
-            ("**/fusion** (rf)", "Fuse maidens to upgrade tiers"),
-            ("**/leader** (rl)", "Set leader maiden for passive bonuses"),
-        ]
-        for cmd, desc in commands_info:
-            embed.add_field(name=cmd, value=desc, inline=False)
-
         embed.add_field(
-            name="Maiden System",
+            name="Commands",
+            value="`/summon`, `/collection`, `/fusion`, `/leader`",
+            inline=False,
+        )
+        embed.add_field(
+            name="About Maidens",
             value=(
                 "• Maidens have tiers (1–12)\n"
                 "• Fuse 2 same-tier maidens to upgrade\n"
-                "• Higher tiers = more power\n"
-                "• Set a leader for passive bonuses"
+                "• Higher tiers = higher power\n"
+                "• Leaders provide passive bonuses"
             ),
             inline=False,
         )
-
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @discord.ui.button(
-        label="📊 Stats",
-        style=discord.ButtonStyle.secondary,
-        custom_id="help_stats",
-    )
+    @discord.ui.button(label="📊 Stats", style=discord.ButtonStyle.secondary)
     async def stats(self, interaction: discord.Interaction, _: discord.ui.Button):
         embed = EmbedBuilder.info(
             title="📊 Statistics",
-            description="View detailed player analytics and metrics",
+            description="View detailed player metrics and analytics.",
             footer="RIKI RPG Help",
         )
-
         embed.add_field(
-            name="**/stats**",
+            name="Commands",
+            value="`/stats`, `/transactions`",
+            inline=False,
+        )
+        embed.add_field(
+            name="What You’ll See",
             value=(
-                "View detailed statistics including:\n"
                 "• Summon analytics\n"
                 "• Fusion success rates\n"
-                "• Collection breakdown\n"
-                "• Resource usage\n"
-                "• Progression metrics"
+                "• Collection breakdowns\n"
+                "• Resource transactions\n"
+                "• XP & level progression"
             ),
             inline=False,
         )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
+    @discord.ui.button(label="✨ Modifier System", style=discord.ButtonStyle.secondary)
+    async def modifiers(self, interaction: discord.Interaction, _: discord.ui.Button):
+        embed = EmbedBuilder.info(
+            title="✨ Modifier System",
+            description="How leader and class bonuses affect your gameplay.",
+            footer="RIKI RPG Help",
+        )
+        embed.add_field(
+            name="Overview",
+            value=(
+                "Modifiers are passive bonuses that multiply resource gains and performance.\n"
+                "They come from your **Leader Maiden** and **Player Class**."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="Leader Bonuses",
+            value=(
+                "• Each leader grants a unique set of modifiers.\n"
+                "• Common types:\n"
+                "  💰 **Income Boost** — More rikis and grace earned\n"
+                "  📈 **XP Boost** — Gain experience faster\n"
+                "  🔮 **Fusion Bonus** — Improves fusion success rate"
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="Class Bonuses",
+            value=(
+                "• Each player class adds additional effects:\n"
+                "  ⚔️ Warrior — +Attack stats\n"
+                "  🛡️ Guardian — +Defense bonuses\n"
+                "  💫 Mystic — +Grace and XP efficiency"
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="Viewing Modifiers",
+            value="Use `/profile` or `/me` to see your **Active Modifiers**.",
+            inline=False,
+        )
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     async def on_timeout(self):
         for item in self.children:
-            if isinstance(item, discord.ui.Button):
-                item.disabled = True
+            item.disabled = True
         if self.message:
             try:
                 await self.message.edit(view=self)

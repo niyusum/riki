@@ -5,6 +5,7 @@ from typing import Optional, Dict, Any
 from src.services.database_service import DatabaseService
 from src.services.player_service import PlayerService
 from src.database.models.player import Player
+from src.database.models.transaction_log import TransactionLog
 from src.services.logger import get_logger
 from utils.embed_builder import EmbedBuilder
 
@@ -20,7 +21,6 @@ def _as_dict(value: Optional[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 def _fusion_success_rate(player: Player) -> float:
-    # Prefer model method if present
     method = getattr(player, "calculate_fusion_success_rate", None)
     if callable(method):
         try:
@@ -28,7 +28,6 @@ def _fusion_success_rate(player: Player) -> float:
             return max(0.0, min(rate, 100.0))
         except Exception:
             pass
-    # Fallback using stats JSON
     stats = _as_dict(getattr(player, "stats", None))
     successes = int(stats.get("fusions_successful", 0))
     total = int(getattr(player, "total_fusions", 0)) or int(stats.get("fusions_total", 0)) or 0
@@ -44,46 +43,33 @@ class StatsCog(commands.Cog):
     Shows comprehensive analytics including summon rates, fusion success,
     resource usage, and progression metrics.
 
+    Also includes `/transactions` for resource history.
+
     RIKI LAW Compliance:
-        - Read-only (no locks needed, Article I.11)
+        - Read-only (Article I.11)
         - Command/Query separation (Article I.11)
     """
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
+    # ===============================================================
+    # Player Statistics Command
+    # ===============================================================
     @commands.hybrid_command(
         name="stats",
         description="View detailed statistics and analytics",
     )
     async def stats(self, ctx: commands.Context, user: Optional[discord.Member] = None):
-        """
-        Display detailed player statistics.
-
-        Args:
-            user: Target player (optional, defaults to command user)
-        """
         await ctx.defer()
 
         target_user = user or ctx.author
 
         try:
             async with DatabaseService.get_transaction() as session:
-                try:
-                    player: Optional[Player] = await PlayerService.get_player_with_regen(
-                        session, target_user.id, lock=False
-                    )
-                except Exception as db_error:
-                    logger.exception(f"[{ctx.command}] DB error during stats fetch for {target_user.id}: {db_error}")
-                    await ctx.send(
-                        embed=EmbedBuilder.error(
-                            title="Database Error",
-                            description="Something went wrong fetching player data.",
-                            help_text="Please try again later.",
-                        ),
-                        ephemeral=True,
-                    )
-                    return
+                player: Optional[Player] = await PlayerService.get_player_with_regen(
+                    session, target_user.id, lock=False
+                )
 
                 if not player:
                     if target_user == ctx.author:
@@ -239,8 +225,8 @@ class StatsCog(commands.Cog):
                     embed.set_thumbnail(url=target_user.display_avatar.url)
 
                 view = StatsActionView(ctx.author.id)
-                message = await ctx.send(embed=embed, view=view)
-                view.set_message(message)
+                msg = await ctx.send(embed=embed, view=view)
+                view.set_message(msg)
 
         except Exception as e:
             logger.error(f"[{getattr(ctx, 'command', None)}] Stats display error for {target_user.id}: {e}", exc_info=True)
@@ -250,6 +236,82 @@ class StatsCog(commands.Cog):
                 help_text="Please try again in a moment.",
             )
             await ctx.send(embed=embed, ephemeral=True)
+
+    # ===============================================================
+    # Transactions Command
+    # ===============================================================
+    @commands.hybrid_command(
+        name="transactions",
+        description="View recent resource transaction history",
+    )
+    async def transactions(self, ctx: commands.Context, limit: Optional[int] = 10):
+        """Display the player's recent resource transactions."""
+        await ctx.defer()
+        limit = max(1, min(limit or 10, 20))
+
+        try:
+            async with DatabaseService.get_transaction() as session:
+                player = await PlayerService.get_player_with_regen(session, ctx.author.id, lock=False)
+                if not player:
+                    await ctx.send(embed=EmbedBuilder.error(
+                        title="Not Registered",
+                        description="You need to register first.",
+                        help_text="Use `/register` to start your journey."
+                    ), ephemeral=True)
+                    return
+
+                result = await session.execute(
+                    f"SELECT * FROM transaction_logs WHERE player_id={ctx.author.id} "
+                    f"AND transaction_type LIKE 'resource_%' ORDER BY timestamp DESC LIMIT {limit}"
+                )
+                logs = result.mappings().all()
+
+            if not logs:
+                await ctx.send(embed=EmbedBuilder.warning(
+                    title="📜 No Transactions",
+                    description="You have no resource transaction history yet."
+                ))
+                return
+
+            embed = discord.Embed(
+                title=f"📜 Resource Transactions (Last {len(logs)})",
+                description="Recent rikis, grace, and gem changes",
+                color=0x2c2d31
+            )
+            for log in logs:
+                details = _as_dict(log.get("details"))
+                tx_type = log.get("transaction_type", "unknown").replace("resource_", "").replace("_", " ").title()
+                granted = details.get("granted") or details.get("resources_granted") or {}
+                consumed = details.get("consumed") or details.get("resources_consumed") or {}
+                mods = details.get("modifiers_applied") or {}
+                lines = [f"+{v:,} {k}" for k, v in granted.items() if v > 0] + [f"-{v:,} {k}" for k, v in consumed.items() if v > 0]
+                bonus_lines = []
+                if mods.get("income_boost", 1.0) > 1.0:
+                    bonus_lines.append(f"💰 +{(mods['income_boost'] - 1.0) * 100:.0f}% income")
+                if mods.get("xp_boost", 1.0) > 1.0:
+                    bonus_lines.append(f"📈 +{(mods['xp_boost'] - 1.0) * 100:.0f}% XP")
+
+                ts = int(discord.utils.snowflake_time(ctx.message.id).timestamp())  # fallback for missing timestamps
+                when = f"<t:{ts}:R>"
+                embed.add_field(
+                    name=f"{tx_type}",
+                    value=_safe_value(
+                        ("\n".join(lines) or "No resource change")
+                        + (f"\n✨ {'; '.join(bonus_lines)}" if bonus_lines else "")
+                        + f"\n*{when}*"
+                    ),
+                    inline=False,
+                )
+
+            await ctx.send(embed=embed)
+
+        except Exception as e:
+            logger.error(f"Transaction view error for {ctx.author.id}: {e}", exc_info=True)
+            await ctx.send(embed=EmbedBuilder.error(
+                title="Transaction Error",
+                description="Unable to fetch transaction history.",
+                help_text="Please try again shortly."
+            ), ephemeral=True)
 
 
 class StatsActionView(discord.ui.View):
