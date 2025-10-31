@@ -39,6 +39,8 @@ class Player(SQLModel, table=True):
         Index("ix_players_last_active", "last_active"),
         Index("ix_players_last_level_up", "last_level_up"),
         Index("ix_players_class_level", "player_class", "level"),
+        Index("ix_players_highest_sector", "highest_sector_reached"),
+        Index("ix_players_highest_floor", "highest_floor_ascended"),
     )
     
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -108,10 +110,18 @@ class Player(SQLModel, table=True):
             "level_ups": 0,
             "overflow_energy_gained": 0,
             "overflow_stamina_gained": 0,
+            "total_explorations": 0,
+            "total_miniboss_defeats": 0,
+            "total_maidens_purified": 0,
+            "total_floor_attempts": 0,
+            "total_floor_victories": 0,
         },
         sa_column=Column(JSON)
     )
-    
+
+    highest_sector_reached: int = Field(default=0, ge=0)
+    highest_floor_ascended: int = Field(default=0, ge=0)
+
     def get_fusion_shards(self, tier: int) -> int:
         """Get number of fusion shards for specific tier."""
         return self.fusion_shards.get(f"tier_{tier}", 0)

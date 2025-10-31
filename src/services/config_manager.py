@@ -188,6 +188,152 @@ class ConfigManager:
             "stack_method": "multiplicative",
             "max_bonus_cap": 300,  # 300% maximum bonus
             "min_penalty_cap": 10  # 10% minimum (90% penalty max)
+        },
+        "exploration_system": {
+            "progress_rates": {
+                "sector_1": 7.0,
+                "sector_2": 4.5,
+                "sector_3": 3.5,
+                "sector_4": 2.5,
+                "sector_5": 2.0,
+                "sector_6": 1.5,
+                "sector_7": 1.0,
+            },
+            "miniboss_progress_multiplier": 0.5,
+            "energy_costs": {
+                "sector_1_base": 5,
+                "sector_2_base": 8,
+                "sector_3_base": 12,
+                "sector_4_base": 17,
+                "sector_5_base": 23,
+                "sector_6_base": 30,
+                "sector_7_base": 38,
+                "sublevel_increment": 1,
+                "boss_multiplier": 1.5
+            },
+            "riki_rewards": {
+                "sector_1_min": 50,
+                "sector_1_max": 100,
+                "sector_scaling": 1.5,
+            },
+            "xp_rewards": {
+                "sector_1_min": 10,
+                "sector_1_max": 30,
+                "sector_scaling": 1.5,
+            },
+            "encounter_rates": {
+                "sector_1": 8.0,
+                "sector_2": 10.0,
+                "sector_3": 12.0,
+                "sector_4": 12.0,
+                "sector_5": 15.0,
+                "sector_6": 15.0,
+                "sector_7": 18.0,
+            },
+            "capture_rates": {
+                "common": 60.0,
+                "uncommon": 45.0,
+                "rare": 30.0,
+                "epic": 15.0,
+                "legendary": 8.0,
+                "mythic": 3.0,
+            },
+            "capture_level_modifier": 2.0,
+            "guaranteed_purification_costs": {
+                "common": 50,
+                "uncommon": 100,
+                "rare": 200,
+                "epic": 500,
+                "legendary": 1500,
+                "mythic": 5000,
+            },
+            "unlock_requirement": 100.0,
+        },
+        
+        # MINIBOSS SYSTEM
+        "miniboss_system": {
+            "hp_base": {
+                "uncommon": 2000,
+                "rare": 5000,
+                "epic": 15000,
+                "legendary": 50000,
+                "mythic": 150000,
+            },
+            "hp_sector_multiplier": 0.5,
+            "hp_sublevel_multiplier": 0.1,
+            "sector_avg_rarity": {
+                "sector_1": "uncommon",
+                "sector_2": "rare",
+                "sector_3": "rare",
+                "sector_4": "epic",
+                "sector_5": "epic",
+                "sector_6": "legendary",
+                "sector_7": "legendary",
+            },
+            "rarity_tier_increase": [1, 2],
+            "reward_base_rikis": 500,
+            "reward_base_xp": 100,
+            "reward_sector_multiplier": 1.0,
+            "boss_sublevel_bonus": 2.0,
+            "boss_rewards": {
+                "prayer_charges": 1,
+                "fusion_catalyst": 1,
+            },
+            "egg_rarity_upgrade": True,
+        },
+        
+        # ASCENSION SYSTEM
+        "ascension_system": {
+            "base_stamina_cost": 5,
+            "stamina_increase_per_10_levels": 1,
+            "enemy_hp_base": 1000,
+            "enemy_hp_growth_rate": 1.12,
+            "attack_multipliers": {
+                "x1": 1,
+                "x5": 5,
+                "x20": 20,
+            },
+            "x20_attack_crit_bonus": 0.2,
+            "x20_attack_gem_cost": 10,
+            "reward_base_rikis": 50,
+            "reward_base_xp": 20,
+            "reward_growth_rate": 1.1,
+            "bonus_intervals": {
+                "egg_every_n_floors": 5,
+                "prayer_charge_every_n_floors": 10,
+                "fusion_catalyst_every_n_floors": 25,
+            },
+            "milestones": {
+                50: {
+                    "title": "Tower Climber",
+                    "rikis": 10000,
+                    "gems": 50,
+                },
+                100: {
+                    "title": "Sky Breaker",
+                    "rikis": 50000,
+                    "gems": 100,
+                    "mythic_egg": True,
+                },
+                150: {
+                    "title": "Heaven Piercer",
+                    "rikis": 100000,
+                    "gems": 200,
+                },
+                200: {
+                    "title": "Divine Ascendant",
+                    "rikis": 250000,
+                    "gems": 500,
+                },
+            },
+            "egg_rarity_floors": {
+                "common": [1, 10],
+                "uncommon": [11, 25],
+                "rare": [26, 50],
+                "epic": [51, 100],
+                "legendary": [101, 200],
+                "mythic": [201, 999999],
+            }
         }
     }
     
